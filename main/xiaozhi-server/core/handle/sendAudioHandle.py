@@ -20,6 +20,14 @@ async def sendAudioMessage(conn, sentenceType, audios, text):
         await send_tts_message(conn, "start", None)
 
     if sentenceType == SentenceType.FIRST:
+        display_text = text
+        if conn.tts_MessageText and (
+            display_text is None or len(display_text) < len(conn.tts_MessageText)
+        ):
+            display_text = conn.tts_MessageText
+
+        conn.last_display_text = display_text
+
         # 同一句子的后续消息加入流控队列，其他情况立即发送
         if (
             hasattr(conn, "audio_rate_controller")
@@ -28,11 +36,11 @@ async def sendAudioMessage(conn, sentenceType, audios, text):
             == conn.sentence_id
         ):
             conn.audio_rate_controller.add_message(
-                lambda: send_tts_message(conn, "sentence_start", text)
+                lambda: send_tts_message(conn, "sentence_start", display_text)
             )
         else:
             # 新句子或流控器未初始化，立即发送
-            await send_tts_message(conn, "sentence_start", text)
+            await send_tts_message(conn, "sentence_start", display_text)
 
     await sendAudio(conn, audios)
     # 发送句子开始消息
@@ -41,6 +49,11 @@ async def sendAudioMessage(conn, sentenceType, audios, text):
 
     # 发送结束消息（如果是最后一个文本）
     if sentenceType == SentenceType.LAST:
+        # 在结束前，用完整文本更新一次屏幕显示，避免只显示片段
+        if conn.tts_MessageText and getattr(conn, "last_display_text", "") != conn.tts_MessageText:
+            await send_tts_message(conn, "sentence_start", conn.tts_MessageText)
+            conn.last_display_text = conn.tts_MessageText
+
         await send_tts_message(conn, "stop", None)
         conn.client_is_speaking = False
         if conn.close_after_chat:

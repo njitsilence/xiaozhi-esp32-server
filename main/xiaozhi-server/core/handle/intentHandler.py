@@ -120,6 +120,16 @@ async def process_intent_result(conn, intent_result, original_text):
                 function_args = intent_data["function_call"]["arguments"]
                 if function_args is None:
                     function_args = {}
+
+            # 兼容 self_volume_set -> self_audio_speaker_set_volume
+            if function_name == "self_volume_set":
+                target_name = "self_audio_speaker_set_volume"
+                if conn.func_handler and conn.func_handler.has_tool(target_name):
+                    function_name = target_name
+                if isinstance(function_args, dict):
+                    if "volume" in function_args and "value" not in function_args:
+                        function_args["value"] = function_args["volume"]
+
             # 确保参数是字符串格式的JSON
             if isinstance(function_args, dict):
                 function_args = json.dumps(function_args)
@@ -167,7 +177,7 @@ async def process_intent_result(conn, intent_result, original_text):
                         result.action == Action.NOTFOUND
                         or result.action == Action.ERROR
                     ):
-                        text = result.result
+                        text = result.result if result.result is not None else result.response
                         if text is not None:
                             speak_txt(conn, text)
                     elif function_name != "play_music":

@@ -74,25 +74,79 @@ def play_music(conn, song_name: str):
 
 def _extract_song_name(text):
     """从用户输入中提取歌名"""
-    for keyword in ["播放音乐"]:
-        if keyword in text:
-            parts = text.split(keyword)
-            if len(parts) > 1:
-                return parts[1].strip()
-    return None
+    if not text:
+        return None
+
+    text = text.strip()
+    # 去掉常见唤起词
+    patterns = [
+        r"^播放音乐",
+        r"^播放",
+        r"^放一首",
+        r"^放首",
+        r"^放",
+        r"^来一首",
+        r"^来首",
+        r"^来点",
+        r"^来个",
+        r"^我要听",
+        r"^想听",
+        r"^听",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "", text)
+
+    # 去掉结尾的泛化词
+    text = re.sub(r"(歌曲|音乐|歌)$", "", text).strip()
+    return text or None
+
+
+def _normalize_song_text(text):
+    if text is None:
+        return ""
+    text = text.lower()
+    # 去掉前缀编号
+    text = re.sub(r"^\d+\.?", "", text)
+    # 去掉常见分隔符和标点
+    text = re.sub(r"[\s,，。.!！?？:：;；“”\"'‘’\-_/【】\[\]（）()]+", "", text)
+    return text
+
+
+def _strip_prefix_number(text):
+    if text is None:
+        return ""
+    return re.sub(r"^\d+\.?", "", text).strip()
+
+
+def _split_song_artist(song_name):
+    base = _strip_prefix_number(song_name)
+    # 按常见分隔符切分：- — – －
+    parts = re.split(r"\s*[-—–－]\s*", base, maxsplit=1)
+    if len(parts) == 2:
+        return parts[0].strip(), parts[1].strip()
+    return base.strip(), ""
 
 
 def _find_best_match(potential_song, music_files):
-    """查找最匹配的歌曲"""
+    """按“文件名包含关键词”进行匹配"""
+    if not potential_song:
+        return None
+
+    query = potential_song.strip().lower()
+    if not query:
+        return None
+
     best_match = None
-    highest_ratio = 0
+    shortest_len = None
 
     for music_file in music_files:
         song_name = os.path.splitext(music_file)[0]
-        ratio = difflib.SequenceMatcher(None, potential_song, song_name).ratio()
-        if ratio > highest_ratio and ratio > 0.4:
-            highest_ratio = ratio
-            best_match = music_file
+        song_name_lower = song_name.lower()
+        if query in song_name_lower:
+            if shortest_len is None or len(song_name) < shortest_len:
+                best_match = music_file
+                shortest_len = len(song_name)
+
     return best_match
 
 
@@ -161,11 +215,17 @@ async def handle_music_command(conn, text):
 
         potential_song = _extract_song_name(clean_text)
         if potential_song:
+            conn.logger.bind(tag=TAG).info(
+                f"音乐匹配输入: {potential_song}, 文件数量: {len(MUSIC_CACHE['music_files'])}"
+            )
             best_match = _find_best_match(potential_song, MUSIC_CACHE["music_files"])
             if best_match:
                 conn.logger.bind(tag=TAG).info(f"找到最匹配的歌曲: {best_match}")
                 await play_local_music(conn, specific_file=best_match)
                 return True
+            notice = f"未找到歌曲《{potential_song}》，即将随机播放"
+            conn.logger.bind(tag=TAG).warning(notice)
+            await send_stt_message(conn, notice)
     # 检查是否是通用播放音乐命令
     await play_local_music(conn)
     return True

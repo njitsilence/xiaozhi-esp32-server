@@ -11,3 +11,4 @@ public class AdminApplication {
         System.out.println("http://localhost:8002/xiaozhi/doc.html");
     }
 }
+

@@ -30,6 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from core.utils.dialogue import Message, Dialogue
 from core.providers.asr.dto.dto import InterfaceType
 from core.handle.textHandle import handleTextMessage
+from core.handle.sendAudioHandle import send_tts_message
 from core.providers.tools.unified_tool_handler import UnifiedToolHandler
 from plugins_func.loadplugins import auto_import_modules
 from plugins_func.register import Action
@@ -832,6 +833,8 @@ class ConnectionHandler:
         ):
             functions = self.func_handler.get_functions()
         response_message = []
+        # 清空本轮的显示文本缓存，避免沿用上一轮
+        self.tts_MessageText = ""
 
         try:
             # 使用带记忆的对话
@@ -981,6 +984,14 @@ class ConnectionHandler:
             text_buff = "".join(response_message)
             self.tts_MessageText = text_buff
             self.dialogue.put(Message(role="assistant", content=text_buff))
+
+        if depth == 0 and not tool_call_flag and self.tts_MessageText:
+            # 主动更新屏幕显示为完整文本（不依赖TTS回传）
+            asyncio.run_coroutine_threadsafe(
+                send_tts_message(self, "sentence_start", self.tts_MessageText),
+                self.loop,
+            )
+
         if depth == 0:
             self.tts.tts_text_queue.put(
                 TTSMessageDTO(

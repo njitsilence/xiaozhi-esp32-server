@@ -171,6 +171,7 @@ class TTSProvider(TTSProviderBase):
         enable_ws_reuse_value = config.get("enable_ws_reuse", True)
         self.enable_ws_reuse = False if str(enable_ws_reuse_value).lower() == 'false' else True
         self.tts_text = ""
+        self.last_sent_text = ""
         self.opus_encoder = opus_encoder_utils.OpusEncoderUtils(
             sample_rate=16000, channels=1, frame_size_ms=60
         )
@@ -341,6 +342,8 @@ class TTSProvider(TTSProviderBase):
             filtered_text = MarkdownCleaner.clean_markdown(text)
 
             if filtered_text:
+                # 记录最近一次发送的文本，供缺失TTSSentenceStart文本时回退使用
+                self.last_sent_text = filtered_text
                 # 发送文本
                 await self.send_text(self.voice, filtered_text, self.conn.sentence_id)
             return
@@ -486,6 +489,8 @@ class TTSProvider(TTSProviderBase):
                     elif res.optional.event == EVENT_TTSSentenceStart:
                         json_data = json.loads(res.payload.decode("utf-8"))
                         self.tts_text = json_data.get("text", "")
+                        if not self.tts_text:
+                            self.tts_text = self.last_sent_text
                         logger.bind(tag=TAG).debug(f"句子语音生成开始: {self.tts_text}")
                         self.tts_audio_queue.put(
                             (SentenceType.FIRST, [], self.tts_text)
